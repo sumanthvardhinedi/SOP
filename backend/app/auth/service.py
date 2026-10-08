@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.schemas import Token, UserLogin, UserRegister
 from app.core.security import create_access_token, hash_password, verify_password
-from app.db.models.shop import Shop
 from app.db.models.user import User
 
 
@@ -20,19 +19,10 @@ async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     return result.scalar_one_or_none()
 
 
-async def get_shop_by_id(db: AsyncSession, shop_id: int) -> Shop | None:
-    """Look up a shop by its primary key ID."""
-    result = await db.execute(select(Shop).where(Shop.id == shop_id))
-    return result.scalar_one_or_none()
-
-
 async def register_user(db: AsyncSession, payload: UserRegister) -> User:
-    """Register a new user assigned to an existing shop.
+    """Register a user with an integer shop assignment and an Argon2id hash.
 
-    1. Checks for duplicate email.
-    2. Verifies that `payload.shop_id` exists in `shops`.
-    3. Hashes the password with Argon2id.
-    4. Persists the user and returns the ORM object.
+    Protected requests resolve this assignment from the stored user record.
     """
     normalized_email = payload.email.strip().lower()
 
@@ -43,18 +33,11 @@ async def register_user(db: AsyncSession, payload: UserRegister) -> User:
             detail="A user with this email address is already registered.",
         )
 
-    shop = await get_shop_by_id(db, payload.shop_id)
-    if shop is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Shop with id {payload.shop_id} does not exist.",
-        )
-
     user = User(
         name=payload.name,
         email=normalized_email,
         password_hash=hash_password(payload.password),
-        shop_id=shop.id,
+        shop_id=payload.shop_id,
     )
 
     db.add(user)
@@ -64,7 +47,7 @@ async def register_user(db: AsyncSession, payload: UserRegister) -> User:
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Could not register user due to a conflicting email or invalid shop reference.",
+            detail="Could not register user due to a conflicting email.",
         ) from exc
 
     await db.refresh(user)

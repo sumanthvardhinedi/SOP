@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class UserRegister(BaseModel):
-    """Schema for registering a new user bound to an existing shop."""
+    """Schema for registering a new user bound to an integer shop ID."""
 
     name: str = Field(..., min_length=1, max_length=255, description="Full name of the user")
     email: EmailStr = Field(..., description="Unique email address of the user")

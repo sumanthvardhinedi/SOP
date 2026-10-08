@@ -18,7 +18,6 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.db.models.shop import Shop
 from app.db.models.user import User
 
 
@@ -46,7 +45,7 @@ async def test_health_endpoint_still_works(client: AsyncClient) -> None:
 async def test_register_user_success(
     client: AsyncClient,
     db_session: AsyncSession,
-    shop_a: Shop,
+    shop_a: int,
 ) -> None:
     """1, 4, 5, 6: Successful registration hashes password, never stores plaintext, and never returns password_hash."""
     email = _unique_email("john")
@@ -58,7 +57,7 @@ async def test_register_user_success(
             "name": "John",
             "email": f"  {email.upper()}  ",
             "password": raw_password,
-            "shop_id": shop_a.id,
+            "shop_id": shop_a,
         },
     )
 
@@ -66,7 +65,7 @@ async def test_register_user_success(
     data = response.json()
     assert data["name"] == "John"
     assert data["email"] == email
-    assert data["shop_id"] == shop_a.id
+    assert data["shop_id"] == shop_a
     assert "id" in data
 
     # 6. Password and password_hash must never be returned in API response
@@ -83,7 +82,7 @@ async def test_register_user_success(
 
 async def test_register_duplicate_email_rejected(
     client: AsyncClient,
-    shop_a: Shop,
+    shop_a: int,
 ) -> None:
     """2. Duplicate email registration returns HTTP 409 Conflict."""
     email = _unique_email("duplicate")
@@ -91,7 +90,7 @@ async def test_register_duplicate_email_rejected(
         "name": "First User",
         "email": email,
         "password": "StrongPassword!123",
-        "shop_id": shop_a.id,
+        "shop_id": shop_a,
     }
 
     first_res = await client.post("/api/v1/auth/register", json=payload)
@@ -106,8 +105,8 @@ async def test_register_duplicate_email_rejected(
     assert "already registered" in second_res.json()["detail"].lower()
 
 
-async def test_register_nonexistent_shop_rejected(client: AsyncClient) -> None:
-    """3. Registration with a nonexistent shop_id returns HTTP 404 Not Found."""
+async def test_register_without_shop_record_succeeds(client: AsyncClient) -> None:
+    """Registration accepts a shop identifier without a shop lookup."""
     response = await client.post(
         "/api/v1/auth/register",
         json={
@@ -117,8 +116,8 @@ async def test_register_nonexistent_shop_rejected(client: AsyncClient) -> None:
             "shop_id": 999_999_999,
         },
     )
-    assert response.status_code == 404
-    assert "shop" in response.json()["detail"].lower()
+    assert response.status_code == 201
+    assert response.json()["shop_id"] == 999_999_999
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +127,7 @@ async def test_register_nonexistent_shop_rejected(client: AsyncClient) -> None:
 
 async def test_login_success_returns_jwt(
     client: AsyncClient,
-    shop_a: Shop,
+    shop_a: int,
 ) -> None:
     """7 & 10. Valid login credentials return HTTP 200 and a valid Bearer JWT."""
     email = _unique_email("login")
@@ -140,7 +139,7 @@ async def test_login_success_returns_jwt(
             "name": "Alice",
             "email": email,
             "password": password,
-            "shop_id": shop_a.id,
+            "shop_id": shop_a,
         },
     )
     assert reg_res.status_code == 201
@@ -164,7 +163,7 @@ async def test_login_success_returns_jwt(
 
 async def test_login_incorrect_password_returns_401(
     client: AsyncClient,
-    shop_a: Shop,
+    shop_a: int,
 ) -> None:
     """8. Login with an incorrect password returns HTTP 401 Unauthorized."""
     email = _unique_email("wrongpass")
@@ -174,7 +173,7 @@ async def test_login_incorrect_password_returns_401(
             "name": "Bob",
             "email": email,
             "password": "RightPassword!123",
-            "shop_id": shop_a.id,
+            "shop_id": shop_a,
         },
     )
 
@@ -257,7 +256,7 @@ def test_password_hashing_and_verification() -> None:
 
 async def test_me_endpoint_with_valid_token(
     client: AsyncClient,
-    shop_a: Shop,
+    shop_a: int,
 ) -> None:
     """14, 17, 18. GET /api/v1/auth/me with valid token returns correct user and shop_id without password_hash."""
     email = _unique_email("me_valid")
@@ -269,7 +268,7 @@ async def test_me_endpoint_with_valid_token(
             "name": "Sumanth",
             "email": email,
             "password": password,
-            "shop_id": shop_a.id,
+            "shop_id": shop_a,
         },
     )
     created_user = reg_res.json()
@@ -289,7 +288,7 @@ async def test_me_endpoint_with_valid_token(
     assert me_data["id"] == created_user["id"]
     assert me_data["name"] == "Sumanth"
     assert me_data["email"] == email
-    assert me_data["shop_id"] == shop_a.id
+    assert me_data["shop_id"] == shop_a
     assert "password" not in me_data
     assert "password_hash" not in me_data
 
@@ -302,7 +301,7 @@ async def test_me_endpoint_missing_token_returns_401(client: AsyncClient) -> Non
 
 async def test_me_endpoint_invalid_or_expired_token_returns_401(
     client: AsyncClient,
-    shop_a: Shop,
+    shop_a: int,
 ) -> None:
     """16. GET /api/v1/auth/me with invalid or expired token returns HTTP 401."""
     bad_res = await client.get(
@@ -317,7 +316,7 @@ async def test_me_endpoint_invalid_or_expired_token_returns_401(
             "name": "Temp User",
             "email": _unique_email("expired"),
             "password": "ValidPassword!123",
-            "shop_id": shop_a.id,
+            "shop_id": shop_a,
         },
     )
     user_id = reg_res.json()["id"]
@@ -340,8 +339,8 @@ async def test_me_endpoint_invalid_or_expired_token_returns_401(
 
 async def test_multi_shop_identity_derived_strictly_from_authenticated_user(
     client: AsyncClient,
-    shop_a: Shop,
-    shop_b: Shop,
+    shop_a: int,
+    shop_b: int,
 ) -> None:
     """Verify User A (Shop A) and User B (Shop B) always resolve their own shop_id from JWT/database."""
     email_a = _unique_email("user_shop_a")
@@ -355,7 +354,7 @@ async def test_multi_shop_identity_derived_strictly_from_authenticated_user(
             "name": "User A",
             "email": email_a,
             "password": password,
-            "shop_id": shop_a.id,
+            "shop_id": shop_a,
         },
     )
     assert reg_a.status_code == 201
@@ -367,7 +366,7 @@ async def test_multi_shop_identity_derived_strictly_from_authenticated_user(
             "name": "User B",
             "email": email_b,
             "password": password,
-            "shop_id": shop_b.id,
+            "shop_id": shop_b,
         },
     )
     assert reg_b.status_code == 201
@@ -385,23 +384,74 @@ async def test_multi_shop_identity_derived_strictly_from_authenticated_user(
     )
     token_b = login_b.json()["access_token"]
 
-    # Even if User A passes a spoofed ?shop_id=<shop_b.id> in the query string,
-    # the backend resolves User A's authoritative shop_id (shop_a.id) from the database.
+    # Even if User A passes a spoofed ?shop_id=<shop_b> in the query string,
+    # the backend resolves User A's authoritative shop_id (shop_a) from the database.
     me_a = await client.get(
-        f"/api/v1/auth/me?shop_id={shop_b.id}",
+        f"/api/v1/auth/me?shop_id={shop_b}",
         headers={"Authorization": f"Bearer {token_a}"},
     )
     assert me_a.status_code == 200
     assert me_a.json()["id"] == reg_a.json()["id"]
-    assert me_a.json()["shop_id"] == shop_a.id
-    assert me_a.json()["shop_id"] != shop_b.id
+    assert me_a.json()["shop_id"] == shop_a
+    assert me_a.json()["shop_id"] != shop_b
 
-    # And User B resolves strictly to shop_b.id
+    # And User B resolves strictly to shop_b
     me_b = await client.get(
-        f"/api/v1/auth/me?shop_id={shop_a.id}",
+        f"/api/v1/auth/me?shop_id={shop_a}",
         headers={"Authorization": f"Bearer {token_b}"},
     )
     assert me_b.status_code == 200
     assert me_b.json()["id"] == reg_b.json()["id"]
-    assert me_b.json()["shop_id"] == shop_b.id
-    assert me_b.json()["shop_id"] != shop_a.id
+    assert me_b.json()["shop_id"] == shop_b
+    assert me_b.json()["shop_id"] != shop_a
+
+
+async def test_me_uses_current_database_shop_despite_token_claim(
+    client: AsyncClient,
+    db_session: AsyncSession,
+    shop_a: int,
+    shop_b: int,
+) -> None:
+    """A stale or misleading JWT shop claim cannot override the database."""
+    user = User(
+        name="Reassigned User",
+        email=_unique_email("reassigned"),
+        password_hash=hash_password("ValidPassword!123"),
+        shop_id=shop_a,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    token = create_access_token(user.id, extra_claims={"shop_id": shop_a})
+    user.shop_id = shop_b
+    await db_session.commit()
+    db_session.expunge_all()
+
+    response = await client.get(
+        f"/api/v1/auth/me?shop_id={shop_a}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["shop_id"] == shop_b
+
+
+async def test_me_rejects_token_for_deleted_user(
+    client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    user = User(
+        name="Deleted User",
+        email=_unique_email("deleted"),
+        password_hash=hash_password("ValidPassword!123"),
+        shop_id=101,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    token = create_access_token(user.id)
+    await db_session.delete(user)
+    await db_session.commit()
+
+    response = await client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 401

@@ -1,50 +1,31 @@
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING
-from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, Numeric, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base, TimestampMixin
+from sqlalchemy import CheckConstraint, Date, Index, Integer, Numeric, String
+from sqlalchemy.orm import Mapped, mapped_column
 
-if TYPE_CHECKING:
-    from app.db.models.dataset import Dataset
-    from app.db.models.shop import Shop
+from app.db.base import Base
 
 
-class Sale(Base, TimestampMixin):
-    """Represents actual historical sales records belonging to a shop and dataset.
-
-    Future ML predictions must NOT be stored in this table.
-    """
+class Sale(Base):
+    """Historical sales identified by shop, SKU, and date."""
 
     __tablename__ = "sales"
     __table_args__ = (
-        CheckConstraint("quantity >= 0", name="quantity_non_negative"),
-        CheckConstraint("length(trim(product)) > 0", name="product_not_empty"),
-        Index("ix_sales_shop_date_product", "shop_id", "date", "product"),
+        CheckConstraint("num_units_sold >= 0", name="num_units_sold_non_negative"),
+        CheckConstraint("length(trim(sku_name)) > 0", name="sku_name_not_empty"),
+        Index("ix_sales_shop_id_date", "shop_id", "date"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    shop_id: Mapped[int] = mapped_column(
-        ForeignKey("shops.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    dataset_id: Mapped[int] = mapped_column(
-        ForeignKey("datasets.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    product: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    quantity: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
-
-    # Relationships
-    shop: Mapped["Shop"] = relationship("Shop", back_populates="sales")
-    dataset: Mapped["Dataset"] = relationship("Dataset", back_populates="sales")
+    shop_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    sku_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    num_units_sold: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
 
     def __repr__(self) -> str:
         return (
             f"<Sale(id={self.id}, shop_id={self.shop_id}, "
-            f"date={self.date}, product={self.product!r}, quantity={self.quantity})>"
+            f"date={self.date}, sku_name={self.sku_name!r}, "
+            f"num_units_sold={self.num_units_sold})>"
         )

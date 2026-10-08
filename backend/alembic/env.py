@@ -14,7 +14,7 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from app.core.config import settings
-from app.db.models import Base  # Imports Base and registers Shop, User, Dataset, Sale
+from app.db.models import Base  # Imports Base and registers User and Sale
 
 # Alembic Config object
 config = context.config
@@ -75,7 +75,11 @@ async def run_async_migrations() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode using asyncio."""
-    asyncio.run(run_async_migrations())
+    connection = config.attributes.get("connection")
+    if connection is not None:
+        do_run_migrations(connection)
+    else:
+        asyncio.run(run_async_migrations())
 
 
 if context.is_offline_mode():
