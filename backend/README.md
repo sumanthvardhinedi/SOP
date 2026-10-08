@@ -2,7 +2,8 @@
 
 Existing FastAPI backend using Python **3.14.3**, PostgreSQL **15+**, async
 SQLAlchemy, Alembic, Pydantic v2, Argon2id, and PyJWT. This phase provides
-**authentication, Excel validation (Phase 3A), and atomic sales persistence (Phase 3B)**.
+**authentication, Excel validation (Phase 3A), atomic sales persistence (Phase 3B),
+and authenticated sales retrieval (Phase 3C)**.
 The validation endpoint remains read-only; the upload endpoint inserts or replaces daily sales.
 
 ## Database schema
@@ -124,6 +125,7 @@ Expected tables: `alembic_version`, `sales`, `users`.
 | `GET /api/v1/auth/me` | Loads the user from PostgreSQL and returns their profile and stored shop ID |
 | `POST /api/v1/sales/upload/validate` | Authenticated `.xlsx` validation and preview, with no database writes |
 | `POST /api/v1/sales/upload` | Authenticated validation and atomic insert/update of daily sales |
+| `GET /api/v1/sales` | Retrieve the authenticated shop's sales with optional date/SKU filters |
 
 Registration accepts the initial shop assignment as it did in Phase 2, now without
 a shop existence lookup. It does not verify ownership of that identifier. Protected
@@ -357,3 +359,65 @@ The concurrency test creates and removes its own isolated schema; other persiste
 and migration tests use temporary schemas inside rolled-back transactions. Existing
 development sales and users do not affect these tests. Phase 3A and authentication regression tests remain
 in the full suite. No additional dependencies are needed.
+
+
+## Phase 3C: Retrieve sales
+
+`GET /api/v1/sales` requires `Authorization: Bearer <token>` and returns only sales
+whose `shop_id` matches the authenticated user's current database record. The
+existing `get_current_user` dependency verifies JWT identity and loads that record.
+Missing, invalid, and expired credentials return HTTP 401.
+
+Optional query parameters:
+
+| Parameter | Meaning |
+| --- | --- |
+| `start_date` | Inclusive earliest date, such as `2026-01-01` |
+| `end_date` | Inclusive latest date, such as `2026-10-08` |
+| `sku_name` | Exact name, preserving case and spaces; blank/whitespace-only values are invalid |
+
+Filters can be combined. Invalid dates or `start_date > end_date` return HTTP 422
+with validation details. Unsupported query parameters are ignored, consistent with
+existing endpoints. In particular, a supplied `shop_id` cannot change the authorized
+shop, and optional shop claims in a JWT are not used for ownership.
+
+Example request:
+
+```bash
+curl --get http://127.0.0.1:8000/api/v1/sales \
+  -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode "start_date=2026-01-01" \
+  --data-urlencode "end_date=2026-10-08" \
+  --data-urlencode "sku_name=ProductA"
+```
+
+Example response:
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "date": "2026-10-01",
+      "shop_id": 101,
+      "sku_name": "ProductA",
+      "num_units_sold": "20.50"
+    }
+  ],
+  "total": 1
+}
+```
+
+Results are ordered by `date` ascending, then `id` ascending. `total` is the number
+of records returned after filtering; there is no pagination in this phase. Empty
+results return `{"items": [], "total": 0}`. Decimal quantities are serialized as
+strings using the same Pydantic convention as upload previews, preserving the
+existing `NUMERIC(12,2)` precision. Each item contains only the five public sales
+fields shown above.
+
+`app/sales/router.py` uses the existing JWT and async-session dependencies.
+`schemas.py` validates the query and defines the response. `service.py` applies
+mandatory shop ownership, optional filters, and ordering in the SQLAlchemy query.
+The endpoint performs reads only. Phase 3C requires no migration or new dependency.
+The complete test suite includes PostgreSQL retrieval tests in isolated transactional
+schemas, plus the existing authentication and Phase 3A/3B regression tests.
