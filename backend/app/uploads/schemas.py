@@ -1,4 +1,4 @@
-"""Validation preview and structured error schemas; no persistence models."""
+"""Sales upload preview, persistence summary, and structured error schemas."""
 from datetime import date
 from decimal import Decimal
 from typing import Literal
@@ -32,3 +32,10 @@ class SalesValidationError(ValueError):
         super().__init__("Sales file validation failed.")
         self.errors = errors
         self.status_code = status_code
+
+
+class SalesUploadResponse(BaseModel):
+    success: Literal[True] = True
+    row_count: int
+    inserted_count: int
+    updated_count: int

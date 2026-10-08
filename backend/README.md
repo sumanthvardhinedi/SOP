@@ -2,8 +2,8 @@
 
 Existing FastAPI backend using Python **3.14.3**, PostgreSQL **15+**, async
 SQLAlchemy, Alembic, Pydantic v2, Argon2id, and PyJWT. This phase provides
-**authentication, the simplified sales schema, and Phase 3A Excel upload validation**.
-Uploads return a preview only; they never write sales data.
+**authentication, Excel validation (Phase 3A), and atomic sales persistence (Phase 3B)**.
+The validation endpoint remains read-only; the upload endpoint inserts or replaces daily sales.
 
 ## Database schema
 
@@ -21,6 +21,7 @@ Only two application tables exist. `alembic_version` is migration metadata.
 - `num_units_sold` is a non-null, non-negative `NUMERIC(12, 2)`. This retains the
   previous quantity precision, including fractional sales, without rounding or data loss.
 - Sales indexes cover `shop_id`, `date`, `sku_name`, and `(shop_id, date)`.
+- A unique constraint enforces one sale per `(shop_id, date, sku_name)`.
 - No dataset, uploader, filename, hash, upload status, or sales timestamp columns exist.
 
 ## Setup
@@ -49,10 +50,11 @@ JWT secret of at least 32 characters. Never commit secrets or `.env`.
 ## Migrations
 
 The original checkout shipped Phase 1 models but **no committed revisions**.
-Two revisions now provide a reproducible migration history:
+Three revisions provide a reproducible migration history:
 
 1. `0001_phase1_baseline` records the original schema.
 2. `0002_simplify_sales` migrates it to `users` and `sales`.
+3. `0003_sales_business_key` adds unique `(shop_id, date, sku_name)` enforcement.
 
 ### New, empty database
 
@@ -121,6 +123,7 @@ Expected tables: `alembic_version`, `sales`, `users`.
 | `POST /api/v1/auth/login` | Verifies email/password and returns a Bearer JWT |
 | `GET /api/v1/auth/me` | Loads the user from PostgreSQL and returns their profile and stored shop ID |
 | `POST /api/v1/sales/upload/validate` | Authenticated `.xlsx` validation and preview, with no database writes |
+| `POST /api/v1/sales/upload` | Authenticated validation and atomic insert/update of daily sales |
 
 Registration accepts the initial shop assignment as it did in Phase 2, now without
 a shop existence lookup. It does not verify ownership of that identifier. Protected
@@ -261,11 +264,96 @@ curl -X POST http://127.0.0.1:8000/api/v1/sales/upload/validate \
 validation service in a worker thread. `service.py` accepts bytes, filename, and
 trusted shop ID; `parser.py` reads using openpyxl; `schemas.py` defines the preview
 and structured errors. The parser/service receive no database session and contain
-no INSERT, UPDATE, DELETE, synchronization, or upsert operations. Authentication,
-models, and migrations are unchanged. Phase 3B and ML are not implemented.
+no database operations. The Phase 3B route calls the separate persistence module
+after validation. Authentication is unchanged; ML is not implemented.
 
 Dependencies added through `requirements.txt`: `openpyxl`, `python-multipart`
 (the FastAPI multipart upload dependency), and `defusedxml` (blocks XML entity
 expansion in untrusted workbooks). Tests generate all workbooks in memory
 and cover file/column/row validation, decimals/dates, JWT authorization, size limits,
 and unchanged existing sales plus absence of write SQL for valid and invalid files.
+
+
+## Phase 3B: Persist validated sales
+
+`POST /api/v1/sales/upload` accepts the same multipart `file` and Bearer JWT as the
+preview endpoint. It reuses the Phase 3A parsing/validation service and additionally
+rejects duplicate `(shop_id, date, sku_name)` keys within the workbook. Errors retain
+the structured `detail.success`/`detail.errors` format, including the duplicate's
+Excel row number and the first matching row. Date normalization happens before
+comparison. SKU names are compared exactly; no trimming, case-folding, summing, or
+silent choice of a duplicate row occurs. `/validate` retains its Phase 3A behavior,
+including previewing duplicate rows without persisting them.
+
+On success, for example:
+
+```json
+{"success": true, "row_count": 10, "inserted_count": 7, "updated_count": 3}
+```
+
+`app/uploads/persistence.py` uses the existing request-scoped async SQLAlchemy
+session and PostgreSQL `INSERT ... ON CONFLICT ON CONSTRAINT
+uq_sales_shop_id_date_sku_name DO UPDATE`. A conflict replaces only
+`num_units_sold`; it preserves the existing ID and key. Existing 20 plus uploaded 25
+results in 25. A repeated upload updates the same records without creating duplicates.
+Counts come from PostgreSQL `RETURNING` (`xmax = 0` distinguishes inserted tuples
+from conflict updates), rather than a pre-write lookup. An existing record counts
+as updated even if its quantity is unchanged.
+
+The route obtains `current_user.shop_id` through the existing JWT/database flow.
+The validation service checks every row against that stored assignment, and the
+persistence service verifies it again and sets the stored shop ID on each write.
+Query/form values and JWT shop claims never authorize another shop. The conflict
+key includes shop ID, so another shop's records cannot be updated by this upload.
+
+All rows are validated before any sales writes. Upserts are sent in batches of
+1,000 rows to stay under asyncpg's parameter limit, ordered by business key to use a
+consistent lock order for competing uploads. Every batch shares one transaction,
+including the session transaction opened by authentication. A single commit happens
+after all batches succeed. Any write or commit failure rolls back all inserts and
+updates from the upload, including completed earlier batches. Database failures
+return HTTP 500 with a safe error message; validation errors return their existing
+4xx details. Concurrent writes to the same key are serialized by PostgreSQL; a
+successful later conflict update replaces the quantity.
+
+### Apply the Phase 3B migration
+
+From `backend/`, using the existing development database settings:
+
+```powershell
+alembic upgrade head
+alembic check
+```
+
+`0003_sales_business_key` adds only the unique constraint and its backing index.
+No application table or column is added. It takes an exclusive lock on `sales`
+through the duplicate check and constraint creation, blocking other access during
+the migration. Schedule accordingly for populated databases.
+
+If duplicate business keys already exist, the migration fails explicitly and rolls
+back without deleting or merging business data. Inspect conflicts with:
+
+```sql
+SELECT shop_id, date, sku_name, count(*)
+FROM sales
+GROUP BY shop_id, date, sku_name
+HAVING count(*) > 1;
+```
+
+Back up the database and decide explicitly which business values are correct before
+resolving duplicates and retrying. There is no automatic deduplication policy.
+To reverse only Phase 3B, use `alembic downgrade 0002_simplify_sales`; this removes
+the unique constraint and preserves every row. Stop using the persistence endpoint
+when downgraded, since its upsert requires that constraint. Earlier migrations are
+unchanged, including the documented irreversible Phase 1 metadata removal.
+
+### Phase 3B tests
+
+Run `pytest -v` as before. New tests use real PostgreSQL for insert/update counts,
+replacement, mixed operations, duplicate rejection, shop isolation, uniqueness,
+migration reversal/duplicate refusal, and concurrent upserts. A real database check
+failure in a later batch verifies that an earlier insert and update both roll back.
+The concurrency test creates and removes its own isolated schema; other persistence
+and migration tests use temporary schemas inside rolled-back transactions. Existing
+development sales and users do not affect these tests. Phase 3A and authentication regression tests remain
+in the full suite. No additional dependencies are needed.
