@@ -3,7 +3,7 @@
 Existing FastAPI backend using Python **3.14.3**, PostgreSQL **15+**, async
 SQLAlchemy, Alembic, Pydantic v2, Argon2id, and PyJWT. This phase provides
 **authentication, Excel validation (Phase 3A), atomic sales persistence (Phase 3B),
-and authenticated sales retrieval (Phase 3C)**.
+authenticated sales retrieval (Phase 3C), and isolated next-day forecasting**.
 The validation endpoint remains read-only; the upload endpoint inserts or replaces daily sales.
 
 ## Database schema
@@ -421,3 +421,65 @@ mandatory shop ownership, optional filters, and ordering in the SQLAlchemy query
 The endpoint performs reads only. Phase 3C requires no migration or new dependency.
 The complete test suite includes PostgreSQL retrieval tests in isolated transactional
 schemas, plus the existing authentication and Phase 3A/3B regression tests.
+
+## Authenticated next-day forecasting
+
+`POST /api/v1/predictions` trains the supplied pandas/sklearn `LinearRegression`
+baseline on the authenticated shop's stored sales and returns next-day forecasts.
+Install the updated `requirements.txt` (adds pandas and scikit-learn; Python 3.14
+wheels supported). No migration, environment variable, or schema change is needed.
+
+```sh
+curl -X POST "$API_BASE_URL/api/v1/predictions" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+No request body or query filter is required. Unknown body/query values are ignored
+and cannot choose a shop. Ownership comes exclusively from the database user
+loaded by the existing JWT dependency. Missing, invalid, or expired tokens return
+401. Existing authentication, Excel endpoints, and sales GET behavior are unchanged.
+
+Example response shape (illustrative values, not a prediction accuracy claim):
+
+```json
+{
+  "status": "ok",
+  "forecast_date": "2026-10-09",
+  "items": [{"sku_name": "Apple", "predicted_units": 21}],
+  "total": 1,
+  "training_rows": 14,
+  "skipped": [],
+  "warnings": []
+}
+```
+
+- One pooled estimator is fitted per request using only that shop's complete
+  historical windows. SKU names map to the supplied model's `sku_id` input.
+- Features: 7/14/21/28-day lags and shifted rolling means, weekend, and the supplied
+  Indian festival list. Means never cross SKU boundaries or include target sales.
+- Forecast date: **the day after the shop's latest stored sales date**. It may be
+  in the past if stored history is old; it is not automatically tomorrow.
+- Missing dates are **not zero-filled**. Training needs at least one 29-day
+  consecutive SKU history. Prediction needs the 28 consecutive days ending at
+  the shop's latest date. Other SKUs can contribute training within the same shop.
+- `skipped` entries contain `sku_name`, `reason` (`incomplete_history` or
+  `insufficient_training_data`), and a readable `message`. No eligible predictions
+  returns `status: "insufficient_history"`, `items: []`, `total: 0`; an empty shop
+  returns `status: "no_sales"`, `forecast_date: null`, and empty lists.
+- Predictions are non-negative whole units, rounded to nearest even at exact
+  halves. Decimal historical data is never altered. There are **no database writes**.
+- Festival features cover only the supplied 2026 calendar. A `warnings` entry
+  explicitly reports when dates outside that year use festival flag zero.
+- Unusable stored dates/quantities return a clear 422. Unexpected computation
+  failures use the existing sanitized 500 handler. Insufficient data is not a 500.
+
+Training and inference run in a worker thread, using detached values from the
+existing async SQLAlchemy session. No model files, prediction tables, frontend
+changes, or new database/auth infrastructure are introduced. This is a baseline;
+forecast accuracy has not been backtested. See [model notes](app/ml/README.md).
+
+Forecast tests in `tests/test_forecasting_model.py` and
+`tests/test_forecasting_api.py` cover causal/grouped features, missing daily
+history, real estimator predictions, rounding, festival dates, shop isolation,
+JWT handling, worker execution, and SQL read-only behavior. Run the complete
+backend suite with `pytest -v` using the existing PostgreSQL test setup.

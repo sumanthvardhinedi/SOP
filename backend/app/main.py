@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.auth.router import router as auth_router
 from app.sales.router import router as sales_router
+from app.ml.router import router as forecast_router
 from app.uploads.router import router as upload_router
 from app.core.config import settings
 from app.db.database import engine
@@ -42,6 +43,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
 app.include_router(upload_router, prefix=settings.API_V1_PREFIX)
 app.include_router(sales_router, prefix=settings.API_V1_PREFIX)
+app.include_router(forecast_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/health", tags=["Health"])
