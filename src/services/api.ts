@@ -1,5 +1,6 @@
 import type {
   APIError,
+  ForecastResponse,
   LoginRequest,
   LoginResponse,
   SalesFilters,
@@ -122,6 +123,11 @@ async function request<T>(
 }
 
 export const api = {
+  generatePrediction: (signal?: AbortSignal) =>
+    request<ForecastResponse>("/api/v1/predictions", {
+      method: "POST",
+      signal,
+    }),
   login: (data: LoginRequest) =>
     request<LoginResponse>(
       "/api/v1/auth/login",
