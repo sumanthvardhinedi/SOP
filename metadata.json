@@ -1,0 +1,6 @@
+{
+  "name": "Multi-Shop Sales Data Backend",
+  "description": "Modular FastAPI, SQLAlchemy 2.x, and PostgreSQL backend for multi-user, multi-shop sales data management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
