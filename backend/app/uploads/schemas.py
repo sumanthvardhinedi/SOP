@@ -1,4 +1,1 @@
-"""Upload and dataset Pydantic v2 schemas.
-
-Planned for implementation in Phase 3.
-"""
+"""Future upload request schemas (Phase 3; not implemented)."""

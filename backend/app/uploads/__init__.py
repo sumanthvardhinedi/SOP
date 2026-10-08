@@ -1,1 +1,1 @@
-"""File upload and dataset processing module (Phase 3)."""
+"""Future sales file upload module (Phase 3; not implemented)."""

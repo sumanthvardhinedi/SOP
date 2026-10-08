@@ -22,7 +22,7 @@ async def register(
     payload: UserRegister,
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Create a new user account associated with an existing shop."""
+    """Create a new user account associated with an integer shop ID."""
     return await register_user(db=db, payload=payload)
 
 

@@ -1,4 +1,1 @@
-"""Upload orchestration, SHA-256 deduplication, and database transaction service.
-
-Planned for implementation in Phase 3.
-"""
+"""Future sales upload validation and insertion (Phase 3; not implemented)."""

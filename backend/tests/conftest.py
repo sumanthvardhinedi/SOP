@@ -1,7 +1,7 @@
 """Pytest fixtures for asynchronous FastAPI and PostgreSQL transactional testing."""
 
 from collections.abc import AsyncGenerator
-import uuid
+import pytest
 
 from httpx import ASGITransport, AsyncClient
 import pytest_asyncio
@@ -10,7 +10,6 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.db.database import get_db
-from app.db.models.shop import Shop
 from app.main import app
 
 
@@ -60,21 +59,12 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides.clear()
 
 
-@pytest_asyncio.fixture
-async def shop_a(db_session: AsyncSession) -> Shop:
-    """Create first isolated test shop (Shop A)."""
-    shop = Shop(name=f"Test Shop Alpha {uuid.uuid4().hex[:8]}")
-    db_session.add(shop)
-    await db_session.commit()
-    await db_session.refresh(shop)
-    return shop
+@pytest.fixture
+def shop_a() -> int:
+    """A shop identifier needs no corresponding database record."""
+    return 101
 
 
-@pytest_asyncio.fixture
-async def shop_b(db_session: AsyncSession) -> Shop:
-    """Create second isolated test shop (Shop B)."""
-    shop = Shop(name=f"Test Shop Beta {uuid.uuid4().hex[:8]}")
-    db_session.add(shop)
-    await db_session.commit()
-    await db_session.refresh(shop)
-    return shop
+@pytest.fixture
+def shop_b() -> int:
+    return 102
