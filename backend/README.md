@@ -147,30 +147,161 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ## 10. API Endpoints
 
-### Phase 1 (Active)
-- `GET /health` — Health check endpoint (`{"status": "ok"}`)
+### Active Endpoints (Phase 1 & Phase 2)
+- `GET  /health` — Health check endpoint (`{"status": "ok"}`)
+- `POST /api/v1/auth/register` — Register a new user assigned to an existing shop
+- `POST /api/v1/auth/login` — Authenticate with email and password to receive a Bearer JWT access token
+- `GET  /api/v1/auth/me` — Retrieve the authenticated user's profile and authoritative `shop_id`
 
-### Planned Endpoints (Phases 2–4)
-- `POST /api/v1/auth/register` — Register user assigned to a shop
-- `POST /api/v1/auth/login` — Authenticate and receive JWT access token
-- `GET  /api/v1/auth/me` — Retrieve authenticated user profile and shop context
+### Planned Endpoints (Phases 3–4)
 - `POST /api/v1/uploads/sales` — Upload CSV/Excel sales dataset for `current_user.shop_id`
 - `GET  /api/v1/datasets` — List datasets belonging to `current_user.shop_id`
 - `GET  /api/v1/sales` — Query historical sales belonging to `current_user.shop_id`
 
 ---
 
-## 11. Testing Instructions
+## 11. Phase 2 Authentication & Multi-Shop Isolation
 
-Run the test suite using `pytest`:
+### How Authentication Works
+1. **Password Security (`app/core/security.py`)**:
+   - Plaintext passwords are hashed using **Argon2id** (`argon2-cffi`) before reaching PostgreSQL.
+   - Plaintext passwords are never stored, logged, or placed in JWT tokens.
+   - `password_hash` is never exposed in any API response (`UserResponse` schema excludes it).
+2. **JWT Access Tokens (`PyJWT`)**:
+   - On successful login (`POST /api/v1/auth/login`), the backend issues a signed JWT using `JWT_SECRET_KEY`, `JWT_ALGORITHM` (`HS256`), and `ACCESS_TOKEN_EXPIRE_MINUTES`.
+   - Claims include `sub` (stringified `user.id`), `iat` (issued-at timestamp), `exp` (expiration timestamp), and `type` (`"access"`).
+3. **Current-User Dependency (`get_current_user` in `app/core/dependencies.py`)**:
+   - Extracts the Bearer token from `Authorization: Bearer <access_token>`.
+   - Validates signature, token type, and expiration (`exp`).
+   - Queries PostgreSQL for the `User` record matching `sub`.
+   - Rejects missing, malformed, tampered, expired, or non-existent user tokens with `HTTP 401 Unauthorized`.
 
-```bash
+### Authoritative Shop Isolation Rule
+Each user belongs to a single shop (`users.shop_id -> shops.id`).
+- During registration (`POST /api/v1/auth/register`), `shop_id` links the newly created account to an existing shop in `shops`.
+- **After login, the client never selects or supplies `shop_id`**.
+- Every protected endpoint resolves the user via `current_user: User = Depends(get_current_user)` and uses `current_user.shop_id` directly from PostgreSQL. Any client-supplied `shop_id` in query strings or payloads is ignored for authorization.
+
+---
+
+## 12. PowerShell API Usage & Testing Examples
+
+### Step 1: Seed a Shop in PostgreSQL (if `shops` is empty)
+Before registering a user with `shop_id: 1`, ensure at least one shop exists in `sales_db`:
+
+```powershell
+psql -U postgres -d sales_db -c "INSERT INTO shops (name) VALUES ('Downtown Flagship Shop'), ('Uptown Branch Shop') ON CONFLICT (name) DO NOTHING; SELECT id, name FROM shops;"
+```
+
+### Step 2: Verify `/health` in PowerShell
+
+```powershell
+Invoke-RestMethod -Method Get -Uri "http://127.0.0.1:8000/health"
+```
+
+Expected output:
+
+```text
+status
+------
+ok
+```
+
+### Step 3: Register a User (`POST /api/v1/auth/register`)
+
+```powershell
+$registerBody = @{
+    name     = "John"
+    email    = "john@example.com"
+    password = "strong-password"
+    shop_id  = 1
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post `
+    -Uri "http://127.0.0.1:8000/api/v1/auth/register" `
+    -ContentType "application/json" `
+    -Body $registerBody
+```
+
+Expected response (`201 Created`):
+
+```json
+{
+  "id": 1,
+  "name": "John",
+  "email": "john@example.com",
+  "shop_id": 1
+}
+```
+
+### Step 4: Log In & Capture the JWT (`POST /api/v1/auth/login`)
+
+```powershell
+$loginBody = @{
+    email    = "john@example.com"
+    password = "strong-password"
+} | ConvertTo-Json
+
+$loginResponse = Invoke-RestMethod -Method Post `
+    -Uri "http://127.0.0.1:8000/api/v1/auth/login" `
+    -ContentType "application/json" `
+    -Body $loginBody
+
+$token = $loginResponse.access_token
+$loginResponse
+```
+
+Expected response (`200 OK`):
+
+```json
+{
+  "access_token": "<JWT_TOKEN>",
+  "token_type": "bearer"
+}
+```
+
+### Step 5: Call Authenticated `/api/v1/auth/me`
+
+```powershell
+Invoke-RestMethod -Method Get `
+    -Uri "http://127.0.0.1:8000/api/v1/auth/me" `
+    -Headers @{ Authorization = "Bearer $token" }
+```
+
+Expected response (`200 OK`):
+
+```json
+{
+  "id": 1,
+  "name": "John",
+  "email": "john@example.com",
+  "shop_id": 1
+}
+```
+
+---
+
+## 13. Running the Automated Test Suite
+
+The test suite (`tests/test_auth.py`) runs in-process via `httpx.AsyncClient` and `ASGITransport` (no manually running Uvicorn server required) and uses SQLAlchemy savepoint rollbacks so your `sales_db` database stays completely clean after test execution.
+
+From the `backend/` directory (with `.venv` activated):
+
+```powershell
 pytest -v
 ```
 
 ---
 
-## 12. Future ML Architecture (Phase 5)
+## 14. Security Notes on `.env`
+
+- Never commit `.env` to Git (`.env` is ignored via `.gitignore`).
+- Never place real PostgreSQL passwords or `JWT_SECRET_KEY` values inside `.env.example`, `README.md`, or source files.
+- Keep `JWT_SECRET_KEY` local in `backend/.env` with at least 32 characters of cryptographic randomness.
+
+---
+
+## 15. Future ML Architecture (Phase 5)
 
 Future forecasting models (XGBoost, LightGBM, Random Forest, Prophet) will reside under `app/ml/`:
 

@@ -5,6 +5,7 @@ import logging
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
+from app.auth.router import router as auth_router
 from app.core.config import settings
 from app.db.database import engine
 
@@ -20,7 +21,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    version="0.1.0",
+    version="0.2.0",
     description="Multi-user, multi-shop sales data management backend.",
     lifespan=lifespan,
 )
@@ -34,6 +35,9 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "An unexpected internal server error occurred."},
     )
+
+
+app.include_router(auth_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.get("/health", tags=["Health"])
