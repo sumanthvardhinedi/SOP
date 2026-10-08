@@ -1,1 +1,1 @@
-"""Future sales file upload module (Phase 3; not implemented)."""
+"""Phase 3A Excel sales validation; no database insertion or synchronization."""

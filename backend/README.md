@@ -2,7 +2,8 @@
 
 Existing FastAPI backend using Python **3.14.3**, PostgreSQL **15+**, async
 SQLAlchemy, Alembic, Pydantic v2, Argon2id, and PyJWT. This phase provides
-**authentication and the simplified sales schema**. File ingestion is not implemented.
+**authentication, the simplified sales schema, and Phase 3A Excel upload validation**.
+Uploads return a preview only; they never write sales data.
 
 ## Database schema
 
@@ -119,6 +120,7 @@ Expected tables: `alembic_version`, `sales`, `users`.
 | `POST /api/v1/auth/register` | Registers a user with a positive integer `shop_id`; no shop record is required |
 | `POST /api/v1/auth/login` | Verifies email/password and returns a Bearer JWT |
 | `GET /api/v1/auth/me` | Loads the user from PostgreSQL and returns their profile and stored shop ID |
+| `POST /api/v1/sales/upload/validate` | Authenticated `.xlsx` validation and preview, with no database writes |
 
 Registration accepts the initial shop assignment as it did in Phase 2, now without
 a shop existence lookup. It does not verify ownership of that identifier. Protected
@@ -180,14 +182,90 @@ migration, schema/ORM agreement, and refusal of a destructive downgrade. The tes
 database role needs permission to create schemas. Tests preserve application rows;
 PostgreSQL sequences can advance during tests.
 
-## Future upload contract (not implemented)
+## Phase 3A: Excel sales validation
 
-A future CSV/Excel file will contain only `shop_id`, `sku_name`, `num_units_sold`,
-and `date`. The backend must authenticate the user, load `current_user.shop_id` from
-the database, validate every row's shop ID against it, and reject a file containing
-another shop before inserting any rows. For a user assigned to 101, rows for 101
-are valid; a file containing both 101 and 102 must be rejected.
+`POST /api/v1/sales/upload/validate` accepts one multipart field named `file` and
+requires the existing `Authorization: Bearer <token>` header. Only genuine `.xlsx`
+workbooks are supported. CSV, legacy `.xls`, macro-enabled files, other extensions,
+and non-Excel content renamed to `.xlsx` are rejected. The supplied MIME header is
+not trusted as proof of file format.
 
-Accepted business rows will go directly into `sales`. There are no upload endpoints,
-parsers, file tracking, deduplication, synchronization, forecasting, or new frontend
-features in this phase.
+The workbook must have exactly one worksheet. Its first row must contain exactly
+`shop_id`, `sku_name`, `num_units_sold`, and `date`, once each, in any order. Headers
+are case-sensitive; extra columns (including unnamed columns with data) are rejected.
+Entirely blank rows are skipped while retaining original Excel row numbers in errors.
+An empty workbook or headers without data is rejected. Formulas and Excel error
+cells are rejected rather than evaluated or accepted from cached results.
+
+Every data row must satisfy:
+
+- `shop_id`: a numeric integer equal to the authenticated user's current stored
+  `shop_id`. Boolean values and numeric strings are not integers for this contract.
+- `sku_name`: a non-empty string, not whitespace-only, at most 255 characters.
+- `num_units_sold`: a finite numeric value >= 0, fitting the existing `NUMERIC(12,2)`
+  column (at most 9999999999.99 and two fractional digits). Numeric strings and
+  booleans are rejected. Decimal values are preserved using Python `Decimal`;
+  excess precision is rejected, never silently rounded.
+- `date`: a native Excel date/datetime cell or an ISO date string such as
+  `2026-10-01`, normalized to Python `date`. Excel's 1900 and 1904 date systems
+  are handled by openpyxl. Bare numbers without Excel date formatting are rejected.
+
+The endpoint passes only `current_user.shop_id` from `get_current_user` to the
+validation service. Query/form shop IDs and optional JWT shop claims cannot override
+that value. If even one row is invalid or belongs to another shop, the entire file
+is rejected without a partial success preview.
+
+### Responses
+
+Valid files return HTTP 200. Pydantic serializes Decimal quantities as JSON strings
+to preserve exact decimal values; dates use ISO strings:
+
+```json
+{
+  "success": true,
+  "row_count": 1,
+  "rows": [
+    {"shop_id": 101, "sku_name": "Apple", "num_units_sold": "20.5", "date": "2026-10-01"}
+  ]
+}
+```
+
+Invalid rows return HTTP 422 with all detected row/field issues:
+
+```json
+{
+  "detail": {
+    "success": false,
+    "errors": [
+      {"row": 3, "column": "shop_id", "message": "shop_id 102 does not match authenticated user's shop_id 101"},
+      {"row": 3, "column": "num_units_sold", "message": "num_units_sold must be >= 0"}
+    ]
+  }
+}
+```
+
+File-level errors use `null` for row/column when unavailable. Unsupported formats
+return 415, unreadable/corrupt workbooks 400, oversized files/workbooks 413, and
+missing/invalid/expired authentication 401. The existing `MAX_UPLOAD_SIZE_MB`
+setting limits the compressed file (20 MiB by default). Parsing also limits total
+uncompressed ZIP members to 100 MiB, archive entries to 1,000, and worksheet data
+rows (including blanks) to 50,000 to bound preview processing.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/sales/upload/validate \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@sales.xlsx"
+```
+
+`app/uploads/router.py` handles authentication/HTTP and runs the synchronous
+validation service in a worker thread. `service.py` accepts bytes, filename, and
+trusted shop ID; `parser.py` reads using openpyxl; `schemas.py` defines the preview
+and structured errors. The parser/service receive no database session and contain
+no INSERT, UPDATE, DELETE, synchronization, or upsert operations. Authentication,
+models, and migrations are unchanged. Phase 3B and ML are not implemented.
+
+Dependencies added through `requirements.txt`: `openpyxl`, `python-multipart`
+(the FastAPI multipart upload dependency), and `defusedxml` (blocks XML entity
+expansion in untrusted workbooks). Tests generate all workbooks in memory
+and cover file/column/row validation, decimals/dates, JWT authorization, size limits,
+and unchanged existing sales plus absence of write SQL for valid and invalid files.
