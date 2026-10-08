@@ -22,6 +22,10 @@ openpyxl>=3.1.5,<4.0.0
 defusedxml>=0.7.1,<1.0.0
 python-multipart>=0.0.20,<1.0.0
 
+# Forecasting (Python 3.14 wheels)
+pandas>=3.0.0,<4.0.0
+scikit-learn>=1.8.0,<2.0.0
+
 # Testing
 pytest>=8.3.4,<9.0.0
 pytest-asyncio>=0.25.3,<1.0.0
