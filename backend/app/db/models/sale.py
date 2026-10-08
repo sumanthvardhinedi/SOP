@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, Date, Index, Integer, Numeric, String
+from sqlalchemy import CheckConstraint, Date, Index, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -15,6 +15,7 @@ class Sale(Base):
         CheckConstraint("num_units_sold >= 0", name="num_units_sold_non_negative"),
         CheckConstraint("length(trim(sku_name)) > 0", name="sku_name_not_empty"),
         Index("ix_sales_shop_id_date", "shop_id", "date"),
+        UniqueConstraint("shop_id", "date", "sku_name", name="uq_sales_shop_id_date_sku_name"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)

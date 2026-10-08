@@ -64,6 +64,7 @@ def validate_sales_upload(
     authenticated_shop_id: int,
     *,
     max_bytes: int = DEFAULT_MAX_BYTES,
+    reject_duplicate_keys: bool = False,
 ) -> list[ValidatedSale]:
     """Return all validated rows, or raise structured errors without a partial preview."""
     if not filename or PurePath(filename).suffix.lower() != ".xlsx":
@@ -82,6 +83,7 @@ def validate_sales_upload(
     errors = []
     validated = []
     data_row_count = 0
+    first_row_by_key = {}
     with closing(iter_excel_rows(contents)) as excel_rows:
         header_cells = next(excel_rows, ())
         headers = [cell.value for cell in header_cells]
@@ -110,6 +112,15 @@ def validate_sales_upload(
                 except ValueError as exc:
                     errors.append(ValidationIssue(row=row_number, column=column, message=str(exc)))
             if len(row_values) == 4:
+                if reject_duplicate_keys:
+                    key = (row_values["shop_id"], row_values["date"], row_values["sku_name"])
+                    if key in first_row_by_key:
+                        errors.append(ValidationIssue(
+                            row=row_number,
+                            message=f"Duplicate (shop_id, date, sku_name); first appears at row {first_row_by_key[key]}.",
+                        ))
+                    else:
+                        first_row_by_key[key] = row_number
                 validated.append(ValidatedSale(**row_values))
     if not data_row_count:
         errors.append(ValidationIssue(message="Workbook must contain at least one data row."))

@@ -1,1 +1,1 @@
-"""Phase 3A Excel sales validation; no database insertion or synchronization."""
+"""Excel sales validation and atomic persistence (Phases 3A and 3B)."""
