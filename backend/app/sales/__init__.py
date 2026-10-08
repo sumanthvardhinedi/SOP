@@ -1,1 +1,1 @@
-"""Sales querying and synchronization module (Phase 3 & Phase 4)."""
+"""Authenticated sales retrieval (Phase 3C)."""
