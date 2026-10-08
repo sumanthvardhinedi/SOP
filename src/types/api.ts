@@ -47,3 +47,23 @@ export interface APIError {
   message: string;
   issues: ValidationIssue[];
 }
+
+/** Matches backend/app/ml/schemas.py; prediction values are whole units. */
+export interface ForecastItem {
+  sku_name: string;
+  predicted_units: number;
+}
+export interface SkippedSKU {
+  sku_name: string;
+  reason: "incomplete_history" | "insufficient_training_data";
+  message: string;
+}
+export interface ForecastResponse {
+  status: "ok" | "no_sales" | "insufficient_history";
+  forecast_date: string | null;
+  items: ForecastItem[];
+  total: number;
+  training_rows: number;
+  skipped: SkippedSKU[];
+  warnings: string[];
+}

@@ -3,6 +3,7 @@ import { Header } from "../components/layout/Header";
 import { Overview } from "../components/sales/Overview";
 import { SalesTable } from "../components/sales/SalesTable";
 import { ExcelUpload } from "../components/upload/ExcelUpload";
+import { PredictionsSection } from "../components/predictions/PredictionsSection";
 import { useSales } from "../hooks/useSales";
 
 export function DashboardPage() {
@@ -40,6 +41,7 @@ export function DashboardPage() {
           />
           <ExcelUpload onSuccess={sales.refresh} />
         </div>
+        <PredictionsSection />
         <footer className="dashboard-footer">
           <span>
             SalesFlow <span className="footer-divider">/</span> A little clarity

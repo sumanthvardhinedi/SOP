@@ -1,8 +1,8 @@
 # SalesFlow frontend
 
 React 19 + TypeScript + Vite. An authenticated workspace for viewing, filtering,
-and uploading your shop's sales. All sales and overview values come from the API;
-there are no sample records or predictions in the application.
+uploading your shop's sales, and requesting next-day predictions. All sales and
+predictions come from the API; there is no embedded sample data.
 
 ## Run locally
 
@@ -67,18 +67,38 @@ except for the placeholder-only `.env.example`.
 - `src/services/api.ts`: fetch, JSON/FormData, bearer headers, errors, 401 events.
 - `src/hooks/`: authentication lifecycle and cancelable sales requests.
 - `src/types/api.ts`: API contracts, including string decimal values.
-- `src/components/`: layout, sales table/filters/overview, and Excel upload.
+- `src/components/`: layout, sales table/filters/overview, Excel upload, and predictions.
 - `src/pages/`: login and dashboard.
 - `src/lib/format.ts`: date/number display and exact decimal totals.
 
-Future API integrations can use the service layer. No ML endpoints or placeholder
-forecasting features are implemented.
+## Predictions
+
+The dashboard's **Generate Prediction** button calls `POST /api/v1/predictions`
+through the shared typed API client, using the existing bearer token. It sends no
+body, `shop_id`, or sales filters. The backend selects the authenticated shop.
+
+The UI follows the real `ForecastResponse` contract: `status`, `forecast_date`,
+`items` (`sku_name`, `predicted_units`), `total`, `training_rows`, `skipped`, and
+`warnings`. It displays the returned date, predicted SKU count, integer-unit sum,
+and SKU table. Only the display total is calculated locally; no forecasting or
+confidence/accuracy values are computed or invented. Prediction units are
+summed with BigInt to avoid rounding when adding large integers.
+
+Generation disables the button and announces progress. Empty/insufficient history
+explains the model's consecutive-day requirements. Skipped SKU reasons and calendar
+warnings are displayed. A 404 shows a no-sales message, 422 retains useful backend
+validation detail, and network/server errors allow retry. A 401 uses the existing
+session-expiry redirect. Leaving the dashboard cancels the frontend request.
+
+Predictions use all shop history independently of sales filters. The prediction
+date is the day after the latest stored sale, not necessarily tomorrow. Regenerate
+after uploading new sales; the existing upload and sales-refresh flow is unchanged.
 
 ## Verification and production
 
 ```sh
 npm run lint   # strict TypeScript checks
-npm test       # API transport, authorization/error handling, decimal/date tests
+npm test       # API/format tests plus prediction component interaction tests
 npm run build # production assets in dist/
 ```
 
@@ -94,3 +114,7 @@ date and SKU filters, and upload an update to verify counts and automatic refres
 Also check invalid credentials, row errors, unsupported file types, expiration,
 logout, reload restoration, keyboard use, and a narrow mobile viewport. Use only
 test accounts and a disposable test database for upload checks.
+
+Prediction component tests use the existing Node test runner and React act with
+a development-only jsdom environment. Synthetic API responses are confined to
+tests; the application always requests the real backend.
