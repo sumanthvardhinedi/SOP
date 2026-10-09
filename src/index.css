@@ -230,6 +230,11 @@ a svg {
   border: 1px solid #f4d8d4;
   color: #a3342a;
 }
+.notice-success {
+  background: #f0faf5;
+  border: 1px solid #d7eddf;
+  color: #277b50;
+}
 .error-list {
   margin: 8px 0 0;
   padding-left: 18px;

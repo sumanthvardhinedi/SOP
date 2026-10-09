@@ -48,6 +48,37 @@ test("login posts JSON without an existing bearer token", async () => {
     "test-session",
   );
 });
+test("register posts UserRegister JSON without an existing bearer token", async () => {
+  session.set("old-session");
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, "/api/v1/auth/register");
+    assert.equal(options?.method, "POST");
+    assert.equal(new Headers(options?.headers).get("Authorization"), null);
+    assert.equal(
+      new Headers(options?.headers).get("Content-Type"),
+      "application/json",
+    );
+    assert.deepEqual(JSON.parse(String(options?.body)), {
+      name: "Jane Doe",
+      email: "jane@example.com",
+      password: "secure-password-123",
+      shop_id: 101,
+    });
+    return reply(
+      { id: 10, name: "Jane Doe", email: "jane@example.com", shop_id: 101 },
+      201,
+    );
+  };
+  assert.deepEqual(
+    await api.register({
+      name: "Jane Doe",
+      email: "jane@example.com",
+      password: "secure-password-123",
+      shop_id: 101,
+    }),
+    { id: 10, name: "Jane Doe", email: "jane@example.com", shop_id: 101 },
+  );
+});
 test("sales query encodes only supported filters and sends bearer authentication", async () => {
   session.set("test-session");
   globalThis.fetch = async (url, options) => {

@@ -1,41 +1,70 @@
 import { useState, type FormEvent } from "react";
-import { ArrowRight, LockKeyhole, Check } from "lucide-react";
-import { useAuth } from "../hooks/useAuth";
+import { ArrowRight, Check, LockKeyhole, UserPlus } from "lucide-react";
+import { api } from "../services/api";
 import { Brand } from "../components/layout/Brand";
 import { ErrorNotice, Spinner, SuccessNotice } from "../components/layout/Feedback";
 
-export function LoginPage({
-  onNavigateRegister,
-  notice,
+export function RegisterPage({
+  onNavigateLogin,
+  onRegistered,
 }: {
-  onNavigateRegister?: () => void;
-  notice?: string;
-} = {}) {
-  const { signIn } = useAuth();
+  onNavigateLogin?: () => void;
+  onRegistered?: (message: string) => void;
+}) {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [shopId, setShopId] = useState("");
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<Error | string>("");
+  const [success, setSuccess] = useState("");
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (!email.trim() || !password) {
-      setError("Enter your email and password.");
+    setSuccess("");
+
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
+    const trimmedShopId = shopId.trim();
+
+    if (!trimmedName || !trimmedEmail || !password || !trimmedShopId) {
+      setError("Complete all fields to create your account.");
       return;
     }
+
+    const parsedShopId = Number(trimmedShopId);
+    if (!Number.isInteger(parsedShopId) || parsedShopId <= 0) {
+      setError("Shop ID must be a positive whole number.");
+      return;
+    }
+
     setPending(true);
     try {
-      await signIn({ email: email.trim(), password });
+      await api.register({
+        name: trimmedName,
+        email: trimmedEmail,
+        password,
+        shop_id: parsedShopId,
+      });
+      const message = "Account created successfully. Please sign in.";
+      setSuccess(message);
+      if (onRegistered) {
+        onRegistered(message);
+      } else {
+        window.history.replaceState(null, "", "/login");
+      }
     } catch (failure) {
       setError(
         failure instanceof Error
-          ? failure.message
-          : "Unable to sign in. Please try again.",
+          ? failure
+          : "Unable to create account. Please try again.",
       );
     } finally {
       setPending(false);
     }
   }
+
   return (
     <main className="login-page">
       <div className="login-top">
@@ -75,20 +104,33 @@ export function LoginPage({
             Built for the way your shop works.
           </div>
         </section>
-        <section className="login-card card" aria-labelledby="login-title">
+        <section className="login-card card" aria-labelledby="register-title">
           <div className="login-icon">
-            <LockKeyhole size={23} />
+            <UserPlus size={23} />
           </div>
-          <h1 id="login-title">Welcome back</h1>
-          <p className="muted">Sales data, simplified.</p>
+          <h1 id="register-title">Create your account</h1>
+          <p className="muted">Set up your workspace for your shop.</p>
           <form onSubmit={submit} className="login-form">
-            {notice && !error && <SuccessNotice message={notice} />}
+            <div className="field">
+              <label htmlFor="name">Full name</label>
+              <input
+                id="name"
+                type="text"
+                autoComplete="name"
+                placeholder="Your full name"
+                required
+                maxLength={255}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                disabled={pending}
+              />
+            </div>
             <div className="field">
               <label htmlFor="email">Email address</label>
               <input
                 id="email"
                 type="email"
-                autoComplete="username"
+                autoComplete="email"
                 placeholder="you@company.com"
                 required
                 maxLength={254}
@@ -102,16 +144,33 @@ export function LoginPage({
               <input
                 id="password"
                 type="password"
-                autoComplete="current-password"
-                placeholder="Enter your password"
+                autoComplete="new-password"
+                placeholder="At least 8 characters"
                 required
+                minLength={8}
                 maxLength={128}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 disabled={pending}
               />
             </div>
+            <div className="field">
+              <label htmlFor="shop_id">Shop ID</label>
+              <input
+                id="shop_id"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                step={1}
+                placeholder="e.g. 101"
+                required
+                value={shopId}
+                onChange={(event) => setShopId(event.target.value)}
+                disabled={pending}
+              />
+            </div>
             {error && <ErrorNotice error={error} />}
+            {success && <SuccessNotice message={success} />}
             <button
               className="button button-primary login-submit"
               disabled={pending}
@@ -119,25 +178,25 @@ export function LoginPage({
               {pending ? (
                 <>
                   <Spinner />
-                  Signing in…
+                  Creating account…
                 </>
               ) : (
                 <>
-                  Sign In
+                  Create Account
                   <ArrowRight size={17} />
                 </>
               )}
             </button>
           </form>
           <p className="login-help">
-            Don’t have an account?{" "}
+            Already have an account?{" "}
             <button
               type="button"
               className="text-button"
-              onClick={onNavigateRegister}
+              onClick={onNavigateLogin}
               disabled={pending}
             >
-              Create Account
+              Sign in
             </button>
           </p>
         </section>

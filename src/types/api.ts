@@ -9,6 +9,12 @@ export interface LoginRequest {
   email: string;
   password: string;
 }
+export interface UserRegister {
+  name: string;
+  email: string;
+  password: string;
+  shop_id: number;
+}
 export interface LoginResponse {
   access_token: string;
   token_type: string;

@@ -7,6 +7,7 @@ import type {
   SalesResponse,
   UploadResponse,
   User,
+  UserRegister,
   ValidationIssue,
 } from "../types/api";
 
@@ -131,6 +132,16 @@ export const api = {
   login: (data: LoginRequest) =>
     request<LoginResponse>(
       "/api/v1/auth/login",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      },
+      false,
+    ),
+  register: (data: UserRegister) =>
+    request<User>(
+      "/api/v1/auth/register",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
