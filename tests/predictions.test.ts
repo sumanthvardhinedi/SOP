@@ -17,6 +17,7 @@ for (const key of [
   "document",
   "navigator",
   "HTMLElement",
+  "HTMLInputElement",
   "Event",
   "MouseEvent",
   "sessionStorage",
@@ -359,4 +360,91 @@ test("existing dashboard features remain present and prediction 401 uses existin
   assert.equal(dom.window.location.pathname, "/login");
   assert.ok(button("Sign In"));
   assert.equal(container.querySelector(".predictions-card"), null);
+});
+
+test("registration page submits UserRegister fields, shows errors, and redirects to login with success notice", async () => {
+  session.clear();
+  dom.window.history.replaceState(null, "", "/login");
+
+  let submittedPayload: unknown = null;
+  let shouldFailFirst = true;
+
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, "/api/v1/auth/register");
+    assert.equal(options?.method, "POST");
+    submittedPayload = JSON.parse(String(options?.body));
+    if (shouldFailFirst) {
+      shouldFailFirst = false;
+      return reply(
+        { detail: "A user with this email address is already registered." },
+        409,
+      );
+    }
+    return reply(
+      {
+        id: 7,
+        name: "Alice Smith",
+        email: "alice@example.com",
+        shop_id: 101,
+      },
+      201,
+    );
+  };
+
+  await mount(createElement(App));
+  assert.equal(dom.window.location.pathname, "/login");
+
+  // Navigate to registration page via "Create Account" button on Login page
+  await click("Create Account");
+  assert.equal(dom.window.location.pathname, "/register");
+  assert.match(text(), /Create your account/);
+
+  const setInput = (selector: string, value: string) => {
+    const input = container.querySelector<HTMLInputElement>(selector)!;
+    assert.ok(input, `Input ${selector} exists`);
+    const prevValue = input.value;
+    const setter = Object.getOwnPropertyDescriptor(
+      dom.window.HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    setter?.call(input, value);
+    const tracker = (
+      input as HTMLInputElement & {
+        _valueTracker?: { setValue: (v: string) => void };
+      }
+    )._valueTracker;
+    tracker?.setValue(prevValue);
+    input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  };
+
+  await act(async () => {
+    setInput("#name", "  Alice Smith  ");
+    setInput("#email", "  alice@example.com  ");
+    setInput("#password", "StrongPassword123");
+    setInput("#shop_id", "101");
+  });
+
+  // First attempt fails with 409 conflict error
+  await click("Create Account");
+  assert.deepEqual(submittedPayload, {
+    name: "Alice Smith",
+    email: "alice@example.com",
+    password: "StrongPassword123",
+    shop_id: 101,
+  });
+  assert.match(
+    container.querySelector('[role="alert"]')?.textContent ?? "",
+    /already registered/,
+  );
+  assert.equal(dom.window.location.pathname, "/register");
+
+  // Second attempt succeeds, shows success message, and redirects to /login
+  await click("Create Account");
+  assert.equal(dom.window.location.pathname, "/login");
+  assert.ok(button("Sign In"));
+  assert.match(
+    container.querySelector('[role="status"]')?.textContent ?? "",
+    /Account created successfully\. Please sign in\./,
+  );
 });

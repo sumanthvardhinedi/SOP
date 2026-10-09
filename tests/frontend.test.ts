@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { api, ApiError, session } from "../src/services/api";
 import { formatDate, formatUnits, totalUnits } from "../src/lib/format";
@@ -256,4 +258,34 @@ test("decimal totals avoid floating-point drift and preserve large sums", () => 
 });
 test("date rendering preserves the API calendar day independently of timezone", () => {
   assert.equal(formatDate("2026-10-01"), "Oct 01, 2026");
+});
+test("project routes /api through Vite proxy to FastAPI with no Express server", () => {
+  const rootDir = path.resolve(import.meta.dirname, "..");
+  assert.equal(fs.existsSync(path.join(rootDir, "server.ts")), false);
+  assert.equal(fs.existsSync(path.join(rootDir, "server.js")), false);
+
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(rootDir, "package.json"), "utf-8"),
+  ) as {
+    scripts?: Record<string, string>;
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  assert.match(pkg.scripts?.dev ?? "", /^vite\b/);
+  assert.equal(pkg.dependencies?.express, undefined);
+  assert.equal(pkg.devDependencies?.["@types/express"], undefined);
+
+  const viteConfig = fs.readFileSync(
+    path.join(rootDir, "vite.config.ts"),
+    "utf-8",
+  );
+  assert.match(viteConfig, /"\/api"/);
+  assert.match(viteConfig, /http:\/\/127\.0\.0\.1:8000/);
+
+  const authRouter = fs.readFileSync(
+    path.join(rootDir, "backend", "app", "auth", "router.py"),
+    "utf-8",
+  );
+  assert.match(authRouter, /prefix="\/auth"/);
+  assert.match(authRouter, /"\/register"/);
 });

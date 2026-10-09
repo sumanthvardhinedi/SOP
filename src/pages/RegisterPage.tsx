@@ -24,11 +24,21 @@ export function RegisterPage({
     setError("");
     setSuccess("");
 
-    const trimmedName = name.trim();
-    const trimmedEmail = email.trim();
-    const trimmedShopId = shopId.trim();
+    const form = event.currentTarget;
+    const readField = (current: string, selector: string) =>
+      current || form.querySelector<HTMLInputElement>(selector)?.value || "";
 
-    if (!trimmedName || !trimmedEmail || !password || !trimmedShopId) {
+    const trimmedName = readField(name, "#name").trim();
+    const trimmedEmail = readField(email, "#email").trim();
+    const rawPassword = readField(password, "#password");
+    const trimmedShopId = readField(shopId, "#shop_id").trim();
+
+    setName(trimmedName);
+    setEmail(trimmedEmail);
+    setPassword(rawPassword);
+    setShopId(trimmedShopId);
+
+    if (!trimmedName || !trimmedEmail || !rawPassword || !trimmedShopId) {
       setError("Complete all fields to create your account.");
       return;
     }
@@ -44,7 +54,7 @@ export function RegisterPage({
       await api.register({
         name: trimmedName,
         email: trimmedEmail,
-        password,
+        password: rawPassword,
         shop_id: parsedShopId,
       });
       const message = "Account created successfully. Please sign in.";
@@ -110,11 +120,12 @@ export function RegisterPage({
           </div>
           <h1 id="register-title">Create your account</h1>
           <p className="muted">Set up your workspace for your shop.</p>
-          <form onSubmit={submit} className="login-form">
+          <form onSubmit={submit} className="login-form" noValidate>
             <div className="field">
               <label htmlFor="name">Full name</label>
               <input
                 id="name"
+                name="name"
                 type="text"
                 autoComplete="name"
                 placeholder="Your full name"
@@ -129,6 +140,7 @@ export function RegisterPage({
               <label htmlFor="email">Email address</label>
               <input
                 id="email"
+                name="email"
                 type="email"
                 autoComplete="email"
                 placeholder="you@company.com"
@@ -143,6 +155,7 @@ export function RegisterPage({
               <label htmlFor="password">Password</label>
               <input
                 id="password"
+                name="password"
                 type="password"
                 autoComplete="new-password"
                 placeholder="At least 8 characters"
@@ -158,6 +171,7 @@ export function RegisterPage({
               <label htmlFor="shop_id">Shop ID</label>
               <input
                 id="shop_id"
+                name="shop_id"
                 type="number"
                 inputMode="numeric"
                 min={1}
